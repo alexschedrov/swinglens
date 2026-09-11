@@ -5,10 +5,10 @@ SwingType = Literal["full", "partial", "pitch", "chip"]
 
 # Phases active per swing type. Phase detection is skipped for inactive phases.
 ACTIVE_PHASES: dict[SwingType, list[str]] = {
-    "full": ["address", "takeaway", "backswing", "top", "downswing", "impact", "follow_through", "finish"],
-    "partial": ["address", "takeaway", "backswing", "top", "downswing", "impact", "follow_through", "finish"],
-    "pitch": ["address", "backswing", "impact", "follow_through", "finish"],
-    "chip": ["address", "impact", "finish"],
+    "full": ["setup", "address", "takeaway", "backswing", "top", "downswing", "impact", "follow_through", "finish"],
+    "partial": ["setup", "address", "takeaway", "backswing", "top", "downswing", "impact", "follow_through", "finish"],
+    "pitch": ["setup", "address", "backswing", "impact", "follow_through", "finish"],
+    "chip": ["setup", "address", "impact", "finish"],
 }
 
 # MediaPipe settings
