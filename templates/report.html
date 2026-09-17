@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SwingLens Report</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px;
+    background: #fafafa; color: #1a1a1a;
+  }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.15rem; margin-top: 40px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+  p.note { color: #555; font-size: 0.9rem; max-width: 70ch; }
+  .meta { color: #555; margin-bottom: 24px; }
+  .meta span { margin-right: 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #e5e5e5; }
+  th { background: #f0f0f0; }
+  .sev-warn { color: #b26a00; font-weight: 600; }
+  .sev-error { color: #c62828; font-weight: 600; }
+  .no-issues { color: #2e7d32; font-weight: 600; }
+  .chart { max-width: 100%; display: block; margin: 12px 0; border: 1px solid #e0e0e0; border-radius: 4px; }
+  video { max-width: 100%; border-radius: 4px; border: 1px solid #e0e0e0; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+  <h1>SwingLens Report</h1>
+  <div class="meta">
+    <span><strong>video:</strong> {{ video }}</span>
+    <span><strong>club:</strong> {{ club }}</span>
+    <span><strong>swing type:</strong> {{ swing_type }}</span>
+    <span><strong>angle:</strong> {{ angle }}</span>
+  </div>
+
+  <h2>Phases</h2>
+  <table>
+    <tr><th>phase</th><th>frame</th><th>time (s)</th></tr>
+    {% for row in phase_rows %}
+    <tr><td>{{ row.phase }}</td><td>{{ row.frame }}</td><td>{{ "%.2f"|format(row.time) }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Issues</h2>
+  {% if issues %}
+  <table>
+    <tr><th>phase</th><th>metric</th><th>measured</th><th>ideal range</th><th>severity</th></tr>
+    {% for issue in issues %}
+    <tr>
+      <td>{{ issue.phase }}</td>
+      <td>{{ issue.metric }}</td>
+      <td>{{ "%.2f"|format(issue.measured) }}</td>
+      <td>{{ "%.2f"|format(issue.ideal_min) }} &ndash; {{ "%.2f"|format(issue.ideal_max) }}</td>
+      <td class="sev-{{ issue.severity }}">{{ issue.severity }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="no-issues">No issues found.</p>
+  {% endif %}
+  <img class="chart" src="data:image/png;base64,{{ charts.issues_grid }}" alt="Issues grid: pass/warn/error per metric and phase">
+
+  <h2>Annotated swing video</h2>
+  <p class="note">Skeleton overlay with the phase label burned into every frame.</p>
+  <video controls src="{{ video_filename }}"></video>
+
+  <h2>Rotation self-consistency check</h2>
+  <p class="note">
+    acos-trick rotation (from the shrinking projected hip/shoulder span) vs. a z-derived
+    rotation (from MediaPipe's own depth coordinate) at each phase &mdash; a
+    self-consistency check between two signals from the same pose model, not a
+    validation against ground truth.
+  </p>
+  <img class="chart" src="data:image/png;base64,{{ charts.rotation_check }}" alt="acos-trick vs z-derived rotation comparison">
+
+  <h2>Bird's-eye view</h2>
+  <p class="note">x/z reprojection (y dropped) of the hip/shoulder line rotating through the swing &mdash; the most direct picture of what the acos trick is computing.</p>
+  <div class="grid-2">
+    <img class="chart" src="data:image/png;base64,{{ charts.birdseye_rotation }}" alt="Bird's-eye rotation fan diagram">
+    <img class="chart" src="data:image/png;base64,{{ charts.birdseye_filmstrip }}" alt="Camera frame vs bird's-eye filmstrip">
+  </div>
+
+  <h2>Metrics over time</h2>
+  <img class="chart" src="data:image/png;base64,{{ charts.metrics_chart }}" alt="Metrics over time">
+
+  <h2>Swing state</h2>
+  <p class="note">SwingState rotation/angle fields and finite-difference angular velocities, plus the lead-wrist and center-of-mass-proxy 2D paths.</p>
+  <img class="chart" src="data:image/png;base64,{{ charts.state_timeseries }}" alt="State timeseries">
+  <img class="chart" src="data:image/png;base64,{{ charts.state_trajectories }}" alt="State trajectories">
+</body>
+</html>

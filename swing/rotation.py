@@ -1,6 +1,9 @@
 import math
 
-from pose.detector import Landmark
+from config import LM_L_HIP, LM_L_SHOULDER, LM_R_HIP, LM_R_SHOULDER
+from pose.detector import FramePose, Landmark
+from swing.metrics import Metrics
+from swing.phases import PhaseMap
 
 def rotation_from_span(span: float | None, address_span: float | None) -> float | None:
     """Rotation angle from how much a projected line has shrunk since address.
@@ -34,3 +37,30 @@ def rotation_from_depth(a: Landmark, b: Landmark, address_a: Landmark, address_b
     measured quantity. Returned as an unsigned angle in [0, 180] to match acos's range."""
     diff = abs(_line_angle_xz(a, b) - _line_angle_xz(address_a, address_b))
     return diff if diff <= 180 else 360 - diff
+
+RotationRow = tuple[str, float | None, float | None, float | None, float | None]
+
+def rotation_comparison_rows(frames: list[FramePose], phases: PhaseMap, metrics: list[Metrics]) -> list[RotationRow]:
+    """Per-phase (phase, acos_hip, z_hip, acos_sho, z_sho) rows -- the self-consistency
+    check between the acos-trick and z-derived rotation, shared by the rotation-check
+    chart and the HTML report."""
+    address_frame = frames[phases["address"]]
+    address_m = metrics[phases["address"]]
+
+    rows: list[RotationRow] = []
+    for phase, idx in phases.items():
+        frame, m = frames[idx], metrics[idx]
+        rows.append((
+            phase,
+            rotation_from_span(m.hip_span, address_m.hip_span),
+            rotation_from_depth(
+                frame.landmarks[LM_L_HIP], frame.landmarks[LM_R_HIP],
+                address_frame.landmarks[LM_L_HIP], address_frame.landmarks[LM_R_HIP],
+            ),
+            rotation_from_span(m.shoulder_span, address_m.shoulder_span),
+            rotation_from_depth(
+                frame.landmarks[LM_L_SHOULDER], frame.landmarks[LM_R_SHOULDER],
+                address_frame.landmarks[LM_L_SHOULDER], address_frame.landmarks[LM_R_SHOULDER],
+            ),
+        ))
+    return rows

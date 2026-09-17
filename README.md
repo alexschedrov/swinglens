@@ -48,3 +48,10 @@ Runs the full pipeline (pose detection → smoothing → phase detection → met
 uv run python cli.py export --video samples/source/dtl.mp4 --club iron --output samples/annotated/state_trajectory.json
 ```
 Takes exactly one video source — `--video`, `--dtl`, or `--face-on` — the latter two also set the camera angle used by the analyzer. With `--video` alone, the angle is `unknown` and the analyzer evaluates every metric (both DTL- and face-on-only), which can produce spurious issues for metrics that aren't geometrically valid from the actual camera angle — prefer `--dtl`/`--face-on` when you know it.
+
+### report
+Runs the full pipeline once and generates a single self-contained HTML report: phase table, issues table + issues grid, the annotated skeleton video, the rotation self-consistency chart, bird's-eye views, the metrics chart, and the state charts.
+```
+uv run python cli.py report --dtl samples/source/dtl.mp4 --club iron --output samples/annotated/report/report.html
+```
+Same video-source rule as `export` (`--video`/`--dtl`/`--face-on`, mutually exclusive). Charts are base64-embedded directly in the HTML; the annotated video is written next to the report as `<output stem>_annotated.mp4` and linked, not embedded, since it can be tens of MB. `--output` defaults to `report.html`.
