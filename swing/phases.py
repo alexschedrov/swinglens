@@ -1,19 +1,17 @@
 import numpy as np
 
-from config import ACTIVE_PHASES, SwingType
+from config import ACTIVE_PHASES, LM_L_WRIST, SwingType
 from pose.detector import FramePose
 
 # phase_name -> index into the frames list (not frame_idx)
 PhaseMap = dict[str, int]
 
-# Left wrist — leads the swing for a right-handed golfer
-_WRIST = 15  
-
 def _wrist_displacement(frames: list[FramePose]) -> np.ndarray:
     """Wrist distance from address position. Uses median of first 20 frames as
-    reference so frame-0 jitter doesn't affect the baseline."""
-    xs = np.array([f.landmarks[_WRIST].x for f in frames])
-    ys = np.array([f.landmarks[_WRIST].y for f in frames])
+    reference so frame-0 jitter doesn't affect the baseline. Tracks the left
+    wrist, which leads the swing for a right-handed golfer."""
+    xs = np.array([f.landmarks[LM_L_WRIST].x for f in frames])
+    ys = np.array([f.landmarks[LM_L_WRIST].y for f in frames])
     ref_n = min(20, len(frames) // 4)
     ref_x = np.median(xs[:ref_n])
     ref_y = np.median(ys[:ref_n])
@@ -52,7 +50,7 @@ def _find_swing_start(dist: np.ndarray, top_idx: int) -> int:
 
 def _find_impact(frames: list[FramePose], top_idx: int) -> int:
     """Frame after top where wrist y is maximum — lowest physical point = impact zone."""
-    ys = np.array([f.landmarks[_WRIST].y for f in frames])
+    ys = np.array([f.landmarks[LM_L_WRIST].y for f in frames])
     return top_idx + int(np.argmax(ys[top_idx:]))
 
 def detect_phases(frames: list[FramePose], swing_type: SwingType = "full") -> PhaseMap:
@@ -78,3 +76,12 @@ def detect_phases(frames: list[FramePose], swing_type: SwingType = "full") -> Ph
     }
 
     return {phase: anchors[phase] for phase in ACTIVE_PHASES[swing_type]}
+
+def phase_at_frame(phases: PhaseMap, i: int) -> str | None:
+    """Phase label for frame list index i: the last phase anchor at or before i.
+    None means frame i comes before the first detected phase (e.g. pre-swing setup)."""
+    label = None
+    for phase, idx in phases.items():
+        if idx <= i:
+            label = phase
+    return label
