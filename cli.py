@@ -1,9 +1,11 @@
 import argparse
 from pathlib import Path
 
+from analysis.analyzer import analyze
 from config import CLUBS, LM_L_HIP, LM_L_SHOULDER, LM_R_HIP, LM_R_SHOULDER
 from pose.detector import FramePose, detect
 from pose.smoother import smooth
+from report.export import export_states
 from swing.metrics import compute_all as compute_metrics
 from swing.phases import PhaseMap, detect_phases
 from swing.rotation import rotation_from_depth, rotation_from_span
@@ -101,6 +103,23 @@ def run_issues_chart(video: str, swing_type: str, club: str, angle: str, output:
     viz.plot_issues_grid(phases, metrics, club, swing_type, angle, output)
     print(f"saved issues grid -> {output}")
 
+def run_export(video: str, swing_type: str, club: str, angle: str, output: str) -> None:
+    frames, phases = _run_pipeline(video, swing_type)
+    metrics = compute_metrics(frames)
+    states = compute_states(frames, metrics, phases)
+
+    issues = analyze(phases, metrics, club, swing_type, angle)
+    if issues:
+        print(f"\n{len(issues)} issue(s) found:")
+        for issue in issues:
+            print(f"  [{issue.severity:<5}] {issue.phase:<16}{issue.metric:<24}"
+                  f"measured={issue.measured:.2f}  ideal=({issue.ideal_min:.2f}, {issue.ideal_max:.2f})")
+    else:
+        print("\nno issues found")
+
+    export_states(states, output)
+    print(f"saved state trajectory ({len(states)} frames) -> {output}")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Golf swing posture tracker")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -135,6 +154,15 @@ def main() -> None:
     issues_chart.add_argument("--angle", default="unknown", choices=["dtl", "face_on", "unknown"])
     issues_chart.add_argument("--output", default="issues_grid.png")
 
+    export = subparsers.add_parser("export", help="Run the full pipeline and export the per-frame state trajectory")
+    video_source = export.add_mutually_exclusive_group(required=True)
+    video_source.add_argument("--video", help="Path to swing video (camera angle unspecified)")
+    video_source.add_argument("--dtl", help="Path to a down-the-line angle video")
+    video_source.add_argument("--face-on", dest="face_on", help="Path to a face-on angle video")
+    export.add_argument("--swing-type", default="full", choices=["full", "partial", "pitch", "chip"])
+    export.add_argument("--club", default="iron", choices=CLUBS)
+    export.add_argument("--output", required=True, help="Output path for the state trajectory (.json or .csv)")
+
     args = parser.parse_args()
 
     if args.command == "annotate":
@@ -150,6 +178,10 @@ def main() -> None:
         run_state_chart(args.video, args.swing_type, args.output_dir)
     elif args.command == "issues-chart":
         run_issues_chart(args.video, args.swing_type, args.club, args.angle, args.output)
+    elif args.command == "export":
+        video = args.dtl or args.face_on or args.video
+        angle = "dtl" if args.dtl else "face_on" if args.face_on else "unknown"
+        run_export(video, args.swing_type, args.club, angle, args.output)
 
 
 if __name__ == "__main__":
