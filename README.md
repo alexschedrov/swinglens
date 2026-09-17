@@ -41,3 +41,10 @@ Pass/warn/error grid: every (metric, phase) cell `IDEAL_RANGES` defines, colored
 uv run python cli.py issues-chart --video samples/source/dtl.mp4 --club iron --angle dtl --output samples/annotated/issues_grid.png
 ```
 `--club` choices: `driver`, `wood`, `hybrid`, `iron`, `short_iron`, `wedge`. `--angle` choices: `dtl`, `face_on`, `unknown`.
+
+### export
+Runs the full pipeline (pose detection → smoothing → phase detection → metrics → analysis) and exports the per-frame `SwingState` trajectory to JSON or CSV, chosen by `--output`'s extension. Detected issues (measured values outside `IDEAL_RANGES` for the given club/swing-type/angle) are printed to the console.
+```
+uv run python cli.py export --video samples/source/dtl.mp4 --club iron --output samples/annotated/state_trajectory.json
+```
+Takes exactly one video source — `--video`, `--dtl`, or `--face-on` — the latter two also set the camera angle used by the analyzer. With `--video` alone, the angle is `unknown` and the analyzer evaluates every metric (both DTL- and face-on-only), which can produce spurious issues for metrics that aren't geometrically valid from the actual camera angle — prefer `--dtl`/`--face-on` when you know it.
