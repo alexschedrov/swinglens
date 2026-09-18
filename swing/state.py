@@ -20,9 +20,9 @@ class SwingState:
     pelvis_rotation: float | None # degrees from address (acos-trick)
     torso_rotation: float | None
     lead_arm_angle: float | None # degrees at the lead elbow
-    wrist_position: tuple[float, float] | None # normalized (x, y), lead wrist
-    head_position: tuple[float, float] | None
-    com_proxy: tuple[float, float] | None # weighted hip/shoulder/head blend, not a real COM
+    wrist_position: tuple[float, float, float] | None # normalized (x, y, z), lead wrist; z is MediaPipe's own estimated depth
+    head_position: tuple[float, float, float] | None
+    com_proxy: tuple[float, float, float] | None # weighted hip/shoulder/head blend, not a real COM
     angular_velocities: AngularVelocities
 
 def _lead_arm_angle(fp: FramePose) -> float | None:
@@ -33,12 +33,17 @@ def _lead_arm_angle(fp: FramePose) -> float | None:
     return _angle_at(_pt(lms[LM_L_SHOULDER], h, w), _pt(lms[LM_L_ELBOW], h, w), _pt(lms[LM_L_WRIST], h, w))
 
 
-def _wrist_position(fp: FramePose) -> tuple[float, float] | None:
+def _wrist_position(fp: FramePose) -> tuple[float, float, float] | None:
     lm = fp.landmarks[LM_L_WRIST]
-    return (lm.x, lm.y) if lm.visibility > 0.4 else None
+    return (lm.x, lm.y, lm.z) if lm.visibility > 0.4 else None
 
 
-def _com_proxy(fp: FramePose) -> tuple[float, float] | None:
+def _head_position(fp: FramePose) -> tuple[float, float, float] | None:
+    lm = fp.landmarks[LM_HEAD]
+    return (lm.x, lm.y, lm.z) if lm.visibility > 0.4 else None
+
+
+def _com_proxy(fp: FramePose) -> tuple[float, float, float] | None:
     """Weighted blend of hip/shoulder/head midpoints. A rough proxy, not a real
     center-of-mass model -- an actual COM needs segment masses we don't have."""
     lms = fp.landmarks
@@ -47,11 +52,14 @@ def _com_proxy(fp: FramePose) -> tuple[float, float] | None:
         return None
     hip_x = (lms[LM_L_HIP].x + lms[LM_R_HIP].x) / 2
     hip_y = (lms[LM_L_HIP].y + lms[LM_R_HIP].y) / 2
+    hip_z = (lms[LM_L_HIP].z + lms[LM_R_HIP].z) / 2
     sho_x = (lms[LM_L_SHOULDER].x + lms[LM_R_SHOULDER].x) / 2
     sho_y = (lms[LM_L_SHOULDER].y + lms[LM_R_SHOULDER].y) / 2
+    sho_z = (lms[LM_L_SHOULDER].z + lms[LM_R_SHOULDER].z) / 2
     x = 0.5 * hip_x + 0.3 * sho_x + 0.2 * lms[LM_HEAD].x
     y = 0.5 * hip_y + 0.3 * sho_y + 0.2 * lms[LM_HEAD].y
-    return (x, y)
+    z = 0.5 * hip_z + 0.3 * sho_z + 0.2 * lms[LM_HEAD].z
+    return (x, y, z)
 
 def _rate(prev: float | None, curr: float | None, dt: float) -> float | None:
     if prev is None or curr is None:
@@ -75,7 +83,7 @@ def compute_all(frames: list[FramePose], metrics: list[Metrics], phases: PhaseMa
         ))
 
     states = []
-    for i, (frame, m) in enumerate(zip(frames, metrics)):
+    for i, frame in enumerate(frames):
         pelvis_rotation, torso_rotation, lead_arm_angle = positions[i]
 
         angular_velocities = AngularVelocities(None, None, None)
@@ -97,7 +105,7 @@ def compute_all(frames: list[FramePose], metrics: list[Metrics], phases: PhaseMa
             torso_rotation=torso_rotation,
             lead_arm_angle=lead_arm_angle,
             wrist_position=_wrist_position(frame),
-            head_position=(m.head_x, m.head_y) if m.head_x is not None else None,
+            head_position=_head_position(frame),
             com_proxy=_com_proxy(frame),
             angular_velocities=angular_velocities,
         ))
