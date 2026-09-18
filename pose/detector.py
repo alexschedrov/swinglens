@@ -90,5 +90,5 @@ def detect(video_path: str) -> list[FramePose]:
                 print(f"  detecting: {frame_idx}/{total} frames", end="\r")
 
     cap.release()
-    print(f"  detecting: done — {len(results)}/{total} frames with pose")
+    print(f"  detecting: done, {len(results)}/{total} frames with pose")
     return results

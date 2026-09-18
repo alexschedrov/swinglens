@@ -1,0 +1,78 @@
+<div style="display:flex; flex-wrap:wrap; gap:16px;">
+{{ html_video | safe }}
+{{ html_front | safe }}
+{{ html_est | safe }}
+</div>
+<div style="display:flex; align-items:center; gap:12px; margin-top:14px; font-family:{{ font_family }};">
+  <button id="scrubber-play-btn" style="background:{{ colors.accent_bg }}; border:1px solid {{ colors.accent_border }}; color:{{ colors.accent_text }}; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;">&#9654; Play</button>
+  <button id="scrubber-pause-btn" style="display:none; background:{{ colors.accent_bg }}; border:1px solid {{ colors.accent_border }}; color:{{ colors.accent_text }}; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;">&#10074;&#10074; Pause</button>
+  <input type="range" id="scrubber-slider" min="0" max="{{ max_frame }}" value="0" step="1" style="flex:1; accent-color:{{ colors.accent }};">
+  <span id="scrubber-time-label" style="min-width:80px; color:{{ colors.accent_dark }}; font-size:13px;">t = 0.00s</span>
+</div>
+<script>
+(function() {
+  var divIds = ["chart-scrubber-video", "chart-scrubber-front", "chart-scrubber-est"];
+  var timestamps = {{ timestamps_json | safe }};
+  var slider = document.getElementById("scrubber-slider");
+  var timeLabel = document.getElementById("scrubber-time-label");
+  var playBtn = document.getElementById("scrubber-play-btn");
+  var pauseBtn = document.getElementById("scrubber-pause-btn");
+  var current = 0;
+  var timer = null;
+  // The video panel's Plotly.animate() (image decode + redraw) is expensive enough that
+  // firing one per showFrame() without waiting backs up a queue during fast Play, which
+  // then keeps draining after Pause and blocks the slider. Fix: track in-flight state and
+  // only keep the latest requested frame, dropping any others in between.
+  var videoBusy = false;
+  var pendingVideoFrame = null;
+
+  function animateVideo(i) {
+    var gd = document.getElementById(divIds[0]);
+    if (!gd || !window.Plotly) return;
+    if (videoBusy) {
+      pendingVideoFrame = i;
+      return;
+    }
+    videoBusy = true;
+    Plotly.animate(gd, [String(i)], {frame: {duration: 0, redraw: true}, transition: {duration: 0}, mode: "immediate"}).then(function() {
+      videoBusy = false;
+      if (pendingVideoFrame !== null) {
+        var next = pendingVideoFrame;
+        pendingVideoFrame = null;
+        animateVideo(next);
+      }
+    });
+  }
+
+  function showFrame(i) {
+    current = i;
+    var name = String(i);
+    animateVideo(i);
+    for (var j = 1; j < divIds.length; j++) {
+      var gd = document.getElementById(divIds[j]);
+      if (gd && window.Plotly) {
+        Plotly.animate(gd, [name], {frame: {duration: 0, redraw: true}, transition: {duration: 0}, mode: "immediate"});
+      }
+    }
+    slider.value = i;
+    timeLabel.textContent = "t = " + timestamps[i].toFixed(2) + "s";
+  }
+
+  slider.addEventListener("input", function() { showFrame(parseInt(slider.value, 10)); });
+
+  playBtn.addEventListener("click", function() {
+    playBtn.style.display = "none";
+    pauseBtn.style.display = "";
+    timer = setInterval(function() {
+      var next = current + 1;
+      if (next >= timestamps.length) { next = 0; }
+      showFrame(next);
+    }, 90);
+  });
+  pauseBtn.addEventListener("click", function() {
+    playBtn.style.display = "";
+    pauseBtn.style.display = "none";
+    clearInterval(timer);
+  });
+})();
+</script>

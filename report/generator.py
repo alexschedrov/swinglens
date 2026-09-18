@@ -21,7 +21,7 @@ from swing.state import SwingState
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 _CHART_CONFIG = {"displaylogo": False, "responsive": True}
 # The scrubber uses fixed pixel dimensions matched to the video's own aspect ratio
-# (see video_scrubber_figure) -- "responsive" resizing would stretch it to the
+# (see video_scrubber_html) -- "responsive" resizing would stretch it to the
 # container's width while keeping its height fixed, breaking that aspect match.
 _SCRUBBER_CONFIG = {"displaylogo": False, "responsive": False}
 
@@ -43,16 +43,11 @@ def generate_report(
     out_path = Path(output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # plotly.js (~4.8MB) is bundled only in the first chart the template renders
-    # (the scrubber) -- every later chart's inline script assumes that global Plotly
-    # object already exists, since a document-order <script> after it is guaranteed to
-    # run afterward. Keeps a multi-chart report from paying that cost once per chart.
+    # plotly.js (~4.8MB) is bundled only once, in the first chart rendered (the
+    # scrubber) -- later charts' inline scripts reuse that global Plotly object.
     def chart_html(fig, div_id: str, include_js: bool, config: dict = _CHART_CONFIG) -> str:
-        # auto_play=False: plotly.py's default auto-plays any figure with animation
-        # frames on load, which for the scrubber's go.Image trace left it unpainted
-        # entirely (an empty <g class="imagelayer">) until some later redraw -- a
-        # Plotly.js quirk where the auto-triggered Plotly.animate() races the image
-        # trace's initial render. No-op for the other charts, which have no frames.
+        # auto_play=False: plotly.py's default auto-plays figures with animation frames
+        # on load, which races the scrubber's go.Image trace and leaves it unpainted.
         return fig.to_html(full_html=False, include_plotlyjs=include_js, config=config, div_id=div_id, auto_play=False)
 
     charts = {

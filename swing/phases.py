@@ -33,7 +33,7 @@ def _first_visible_frame(frames: list[FramePose]) -> int:
 
 def _find_top(dist: np.ndarray) -> int:
     """Top of backswing: max displacement before the peak wrist speed.
-    The downswing is always the fastest wrist motion — anchors the search."""
+    The downswing is always the fastest wrist motion, anchoring the search."""
     vel = np.abs(np.gradient(dist))
     vel = np.convolve(vel, np.ones(7) / 7, mode='same')
     speed_peak = int(np.argmax(vel))
@@ -49,7 +49,7 @@ def _find_swing_start(dist: np.ndarray, top_idx: int) -> int:
     return 0
 
 def _find_impact(frames: list[FramePose], top_idx: int) -> int:
-    """Frame after top where wrist y is maximum — lowest physical point = impact zone."""
+    """Frame after top where wrist y is maximum: the lowest physical point, i.e. impact."""
     ys = np.array([f.landmarks[LM_L_WRIST].y for f in frames])
     return top_idx + int(np.argmax(ys[top_idx:]))
 
