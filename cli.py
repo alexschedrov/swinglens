@@ -109,7 +109,6 @@ def run_report(video: str, swing_type: str, club: str, angle: str, output: str) 
     metrics = compute_metrics(frames)
     states = compute_states(frames, metrics, phases)
     issues = analyze(phases, metrics, club, swing_type, angle)
-
     generate_report(frames, phases, metrics, states, issues, video, club, swing_type, angle, output)
     print(f"saved report -> {output}")
 
