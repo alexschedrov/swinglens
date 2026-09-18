@@ -1,21 +1,29 @@
-import base64
-import tempfile
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from analysis.analyzer import Issue
 from pose.detector import FramePose
+from report.charts import (
+    birdseye_rotation_figure,
+    issues_grid_figure,
+    metrics_timeseries_figure,
+    rotation_comparison_figure,
+    state_timeseries_figure,
+    state_trajectories_figure,
+    video_scrubber_html,
+)
 from swing.metrics import Metrics
 from swing.phases import PhaseMap
 from swing.rotation import rotation_comparison_rows
 from swing.state import SwingState
-from visualization import visualization as viz
 
 _TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
-
-def _b64_png(path: Path) -> str:
-    return base64.b64encode(path.read_bytes()).decode("ascii")
+_CHART_CONFIG = {"displaylogo": False, "responsive": True}
+# The scrubber uses fixed pixel dimensions matched to the video's own aspect ratio
+# (see video_scrubber_figure) -- "responsive" resizing would stretch it to the
+# container's width while keeping its height fixed, breaking that aspect match.
+_SCRUBBER_CONFIG = {"displaylogo": False, "responsive": False}
 
 def generate_report(
     frames: list[FramePose],
@@ -29,47 +37,33 @@ def generate_report(
     angle: str,
     output: str,
 ) -> None:
-    """Assemble every chart the CLI can produce plus the analyzer's issues into one
-    self-contained HTML report. Charts are base64-embedded; the annotated skeleton video
-    is written alongside the report and linked, not embedded (too large for a data URI)."""
+    """Assemble every interactive chart the CLI can produce plus the analyzer's issues
+    into one self-contained local HTML file. Each chart bundles plotly.js inline (no CDN,
+    no separate files) so the report is a single file that works fully offline."""
     out_path = Path(output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
+    # plotly.js (~4.8MB) is bundled only in the first chart the template renders
+    # (the scrubber) -- every later chart's inline script assumes that global Plotly
+    # object already exists, since a document-order <script> after it is guaranteed to
+    # run afterward. Keeps a multi-chart report from paying that cost once per chart.
+    def chart_html(fig, div_id: str, include_js: bool, config: dict = _CHART_CONFIG) -> str:
+        # auto_play=False: plotly.py's default auto-plays any figure with animation
+        # frames on load, which for the scrubber's go.Image trace left it unpainted
+        # entirely (an empty <g class="imagelayer">) until some later redraw -- a
+        # Plotly.js quirk where the auto-triggered Plotly.animate() races the image
+        # trace's initial render. No-op for the other charts, which have no frames.
+        return fig.to_html(full_html=False, include_plotlyjs=include_js, config=config, div_id=div_id, auto_play=False)
 
-        rotation_path = tmp_dir / "rotation_check.png"
-        viz.plot_rotation_comparison(rotation_comparison_rows(frames, phases, metrics), str(rotation_path))
-
-        birdseye_rotation_path = tmp_dir / "birdseye_rotation.png"
-        birdseye_filmstrip_path = tmp_dir / "birdseye_filmstrip.png"
-        viz.plot_birdseye_rotation(frames, phases, str(birdseye_rotation_path))
-        viz.plot_birdseye_filmstrip(frames, phases, str(birdseye_filmstrip_path))
-
-        metrics_chart_path = tmp_dir / "metrics_chart.png"
-        viz.plot_metrics_timeseries(frames, metrics, phases, str(metrics_chart_path))
-
-        state_timeseries_path = tmp_dir / "state_timeseries.png"
-        state_trajectories_path = tmp_dir / "state_trajectories.png"
-        viz.plot_state_timeseries(states, phases, str(state_timeseries_path))
-        viz.plot_state_trajectories(states, str(state_trajectories_path))
-
-        issues_grid_path = tmp_dir / "issues_grid.png"
-        viz.plot_issues_grid(phases, metrics, club, swing_type, angle, str(issues_grid_path))
-
-        charts = {
-            "rotation_check": _b64_png(rotation_path),
-            "birdseye_rotation": _b64_png(birdseye_rotation_path),
-            "birdseye_filmstrip": _b64_png(birdseye_filmstrip_path),
-            "metrics_chart": _b64_png(metrics_chart_path),
-            "state_timeseries": _b64_png(state_timeseries_path),
-            "state_trajectories": _b64_png(state_trajectories_path),
-            "issues_grid": _b64_png(issues_grid_path),
-        }
-
-    video_filename = out_path.stem + "_annotated.mp4"
-    fps = len(frames) / frames[-1].timestamp if frames[-1].timestamp else 30.0
-    viz.export_annotated_video(frames, phases, str(out_path.parent / video_filename), fps)
+    charts = {
+        "scrubber": video_scrubber_html(frames, angle, _SCRUBBER_CONFIG),
+        "rotation": chart_html(rotation_comparison_figure(rotation_comparison_rows(frames, phases, metrics)), "chart-rotation", False),
+        "birdseye": chart_html(birdseye_rotation_figure(frames, phases, angle), "chart-birdseye", False),
+        "metrics": chart_html(metrics_timeseries_figure(frames, metrics, phases), "chart-metrics", False),
+        "state_ts": chart_html(state_timeseries_figure(states, phases), "chart-state-ts", False),
+        "state_traj": chart_html(state_trajectories_figure(states, angle), "chart-state-traj", False),
+        "issues": chart_html(issues_grid_figure(phases, metrics, club, swing_type, angle), "chart-issues", False),
+    }
 
     phase_rows = [
         {"phase": phase, "frame": frames[idx].frame_idx, "time": frames[idx].timestamp}
@@ -86,6 +80,5 @@ def generate_report(
         phase_rows=phase_rows,
         issues=issues,
         charts=charts,
-        video_filename=video_filename,
     )
     out_path.write_text(html)

@@ -9,39 +9,6 @@ uv run python cli.py annotate --video samples/source/face_on.mp4 --output sample
 ```
 `--output` defaults to `<video>_annotated.<ext>` next to the input if omitted.
 
-### rotation-check
-Compares the acos-trick rotation (shrinking projected span) against a z-derived rotation (MediaPipe's own depth) at every phase — a self-consistency check, not a ground-truth validation.
-```
-uv run python cli.py rotation-check --video samples/source/face_on.mp4 --output samples/annotated/rotation_check.png
-```
-
-### birdseye
-Bird's-eye (x/z plane) visualizations of the hip/shoulder line rotating through the swing: a fan diagram and a camera-frame/bird's-eye filmstrip, one column per phase.
-```
-uv run python cli.py birdseye --video samples/source/face_on.mp4 --output-dir samples/annotated/birdseye
-```
-Writes `birdseye_rotation.png` and `birdseye_filmstrip.png` into `--output-dir`.
-
-### metrics-chart
-Plots every `Metrics` field (spine angle, knee flex, hip/shoulder span, head position, hip sway) over time, with phase boundaries marked.
-```
-uv run python cli.py metrics-chart --video samples/source/face_on.mp4 --output samples/annotated/metrics_chart.png
-```
-
-### state-chart
-Plots `SwingState` rotation/angle fields and angular velocities over time, plus 2D lead-wrist and COM-proxy trajectories.
-```
-uv run python cli.py state-chart --video samples/source/face_on.mp4 --output-dir samples/annotated/state
-```
-Writes `state_timeseries.png` and `state_trajectories.png` into `--output-dir`.
-
-### issues-chart
-Pass/warn/error grid: every (metric, phase) cell `IDEAL_RANGES` defines, colored by whether the measured value is within range for the given club/swing-type/angle.
-```
-uv run python cli.py issues-chart --video samples/source/dtl.mp4 --club iron --angle dtl --output samples/annotated/issues_grid.png
-```
-`--club` choices: `driver`, `wood`, `hybrid`, `iron`, `short_iron`, `wedge`. `--angle` choices: `dtl`, `face_on`, `unknown`.
-
 ### export
 Runs the full pipeline (pose detection → smoothing → phase detection → metrics → analysis) and exports the per-frame `SwingState` trajectory to JSON or CSV, chosen by `--output`'s extension. Detected issues (measured values outside `IDEAL_RANGES` for the given club/swing-type/angle) are printed to the console.
 ```
@@ -50,8 +17,8 @@ uv run python cli.py export --video samples/source/dtl.mp4 --club iron --output 
 Takes exactly one video source — `--video`, `--dtl`, or `--face-on` — the latter two also set the camera angle used by the analyzer. With `--video` alone, the angle is `unknown` and the analyzer evaluates every metric (both DTL- and face-on-only), which can produce spurious issues for metrics that aren't geometrically valid from the actual camera angle — prefer `--dtl`/`--face-on` when you know it.
 
 ### report
-Runs the full pipeline once and generates a single self-contained HTML report: phase table, issues table + issues grid, the annotated skeleton video, the rotation self-consistency chart, bird's-eye views, the metrics chart, and the state charts.
+Runs the full pipeline once and generates a single self-contained, interactive HTML report (Plotly charts, no separate files): a synced video/skeleton scrubber, phase table, issues table + issues grid, the rotation self-consistency chart, bird's-eye view, the metrics chart, and the state charts.
 ```
 uv run python cli.py report --dtl samples/source/dtl.mp4 --club iron --output samples/annotated/report/report.html
 ```
-Same video-source rule as `export` (`--video`/`--dtl`/`--face-on`, mutually exclusive). Charts are base64-embedded directly in the HTML; the annotated video is written next to the report as `<output stem>_annotated.mp4` and linked, not embedded, since it can be tens of MB. `--output` defaults to `report.html`.
+Same video-source rule as `export` (`--video`/`--dtl`/`--face-on`, mutually exclusive). `--output` defaults to `report.html`.
