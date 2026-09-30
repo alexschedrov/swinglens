@@ -83,12 +83,15 @@ def _segment_xz(a: Landmark, b: Landmark) -> tuple[list[float], list[float]]:
     cx, cz = (a.x + b.x) / 2, (a.z + b.z) / 2
     return [a.x - cx, b.x - cx], [a.z - cz, b.z - cz]
 
-def _skeleton_traces_2d(landmarks: list[Landmark], x_attr: str) -> list[go.Scatter]:
+def _skeleton_traces_2d(landmarks: list[Landmark], x_attr: str, flip_x: bool = False) -> list[go.Scatter]:
     """One 2D trace per bone-color group plus one joint-marker trace, in a fixed order so
     trace indices line up across every animation frame. x_attr picks which landmark
     coordinate is the plotted x-axis -- 'x' for a front view matching the camera, 'z' for
     a side view showing MediaPipe's estimated depth; y is always vertical (flipped so
-    "up" is positive)."""
+    "up" is positive). flip_x negates the plotted x-axis -- a 180-degree turn used for the
+    down-the-line-estimated panel so it reads as viewed from the golfer's left side,
+    rather than whatever side MediaPipe's arbitrary z-sign convention happens to produce."""
+    sign = -1 if flip_x else 1
     bone_traces = []
     for color, pairs in _SKELETON_GROUPS.items():
         xs: list = []
@@ -97,13 +100,13 @@ def _skeleton_traces_2d(landmarks: list[Landmark], x_attr: str) -> list[go.Scatt
             a, b = landmarks[a_idx], landmarks[b_idx]
             if a.visibility <= 0.4 or b.visibility <= 0.4:
                 continue
-            xs += [getattr(a, x_attr), getattr(b, x_attr), None]
+            xs += [sign * getattr(a, x_attr), sign * getattr(b, x_attr), None]
             ys += [-a.y, -b.y, None] # image y grows downward; flip so "up" is positive
         bone_traces.append(go.Scatter(x=xs, y=ys, mode="lines", line=dict(color=color, width=3), showlegend=False))
 
     visible = [lm for lm in landmarks if lm.visibility > 0.4]
     joints_trace = go.Scatter(
-        x=[getattr(lm, x_attr) for lm in visible], y=[-lm.y for lm in visible],
+        x=[sign * getattr(lm, x_attr) for lm in visible], y=[-lm.y for lm in visible],
         mode="markers", marker=dict(size=4, color=_COLORS["joint"]), showlegend=False,
     )
     return [*bone_traces, joints_trace]
@@ -325,15 +328,16 @@ def video_scrubber_html(frames: list[FramePose], angle: str, config: dict) -> st
         width=video_panel_width, height=panel_height, margin=dict(t=40, b=10, l=10, r=10),
     )
 
-    def skeleton_figure(x_attr: str, title: str, x_range: list, y_range: list) -> go.Figure:
-        fig = go.Figure(_skeleton_traces_2d(frames[0].landmarks, x_attr))
+    def skeleton_figure(x_attr: str, title: str, x_range: list, y_range: list, flip_x: bool = False) -> go.Figure:
+        fig = go.Figure(_skeleton_traces_2d(frames[0].landmarks, x_attr, flip_x))
         fig.frames = [
-            go.Frame(name=str(i), data=_skeleton_traces_2d(frames[i].landmarks, x_attr), traces=list(range(n_skeleton_traces)))
+            go.Frame(name=str(i), data=_skeleton_traces_2d(frames[i].landmarks, x_attr, flip_x), traces=list(range(n_skeleton_traces)))
             for i in range(n)
         ]
+        plotted_range = [-x_range[1], -x_range[0]] if flip_x else x_range
         # No 1:1 scaleanchor here: z's much wider, noisier spread would stretch the
         # estimated-angle panel's y-range and squash the body into a sliver.
-        fig.update_xaxes(title_text=(x_label if x_attr == "x" else z_label), range=x_range, autorange=False)
+        fig.update_xaxes(title_text=(x_label if x_attr == "x" else z_label), range=plotted_range, autorange=False)
         fig.update_yaxes(title_text=y_label, range=y_range, autorange=False)
         fig.update_layout(
             title=_title(title), font=_FONT,
@@ -341,8 +345,11 @@ def video_scrubber_html(frames: list[FramePose], angle: str, config: dict) -> st
         )
         return fig
 
+    # When the estimated panel is standing in for a down-the-line view (i.e. the actual
+    # footage is face-on), flip it 180 degrees so it reads as viewed from the golfer's
+    # left side, rather than whatever side MediaPipe's arbitrary z-sign gives by default.
     fig_front = skeleton_figure("x", primary_title, ranges["xaxis"]["range"], ranges["yaxis"]["range"])
-    fig_est = skeleton_figure("z", secondary_title, ranges["zaxis"]["range"], ranges["yaxis"]["range"])
+    fig_est = skeleton_figure("z", secondary_title, ranges["zaxis"]["range"], ranges["yaxis"]["range"], flip_x=(angle == "face_on"))
 
     html_video = fig_video.to_html(full_html=False, include_plotlyjs=True, config=config, div_id="chart-scrubber-video", auto_play=False)
     html_front = fig_front.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="chart-scrubber-front", auto_play=False)
