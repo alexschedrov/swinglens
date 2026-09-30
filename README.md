@@ -22,3 +22,23 @@ Runs the full pipeline once and generates a single self-contained, interactive H
 uv run python cli.py report --dtl samples/source/dtl.mp4 --club iron --output samples/annotated/report/report.html
 ```
 Same video-source rule as `export` (`--video`/`--dtl`/`--face-on`, mutually exclusive). `--output` defaults to `report.html`.
+
+### video downloads
+```bash
+yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 -o "downloaded.%(ext)s" "https://www.youtube.com/watch?v=P3YksJdejog"
+```
+To grab only part of the video, add `--download-sections` (accepts `HH:MM:SS` or raw seconds) plus `--force-keyframes-at-cuts` so the cut lands exactly on those timestamps instead of the nearest keyframe:
+```bash
+yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 --download-sections "*00:01:30-00:02:00" --force-keyframes-at-cuts -o "downloaded.%(ext)s" "https://www.youtube.com/watch?v=P3YksJdejog"
+```
+
+### video crop
+Split a side-by-side split-screen video into its two camera angles (adjust the fractions if the seam isn't 50/50 — extract one frame first to check):
+```bash
+ffmpeg -i downloaded.mp4 -filter:v "crop=iw*0.6:ih:0:0" -c:a copy left.mp4
+ffmpeg -i downloaded.mp4 -filter:v "crop=iw*0.4:ih:iw*0.6:0" -c:a copy right.mp4
+```
+To trim a time range while cropping, add `-ss START -t DURATION` before `-i` (fast seek to the nearest keyframe, then decode):
+```bash
+ffmpeg -ss 00:01:30 -i downloaded.mp4 -t 30 -filter:v "crop=iw*0.6:ih:0:0" -c:a copy left.mp4
+```
