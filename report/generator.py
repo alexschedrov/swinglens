@@ -46,12 +46,11 @@ def generate_report(
     # plotly.js (~4.8MB) is bundled only once, in the first chart rendered (the
     # scrubber) -- later charts' inline scripts reuse that global Plotly object.
     def chart_html(fig, div_id: str, include_js: bool, config: dict = _CHART_CONFIG) -> str:
-        # auto_play=False: plotly.py's default auto-plays figures with animation frames
-        # on load, which races the scrubber's go.Image trace and leaves it unpainted.
+        # auto_play=False: plotly.py's default auto-plays figures with animation frames on load.
         return fig.to_html(full_html=False, include_plotlyjs=include_js, config=config, div_id=div_id, auto_play=False)
 
     charts = {
-        "scrubber": video_scrubber_html(frames, angle, _SCRUBBER_CONFIG),
+        "scrubber": video_scrubber_html(frames, angle, _SCRUBBER_CONFIG, video),
         "rotation": chart_html(rotation_comparison_figure(rotation_comparison_rows(frames, phases, metrics)), "chart-rotation", False),
         "birdseye": chart_html(birdseye_rotation_figure(frames, phases, angle), "chart-birdseye", False),
         "metrics": chart_html(metrics_timeseries_figure(frames, metrics, phases), "chart-metrics", False),

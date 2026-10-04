@@ -1,7 +1,13 @@
-<div style="display:flex; flex-wrap:wrap; gap:16px;">
-{{ html_video | safe }}
-{{ html_front | safe }}
-{{ html_est | safe }}
+<div style="display:flex; flex-wrap:nowrap; gap:{{ gap }}px; align-items:flex-start;">
+  <div style="flex:none;">
+    <div style="height:40px; display:flex; align-items:center; font-family:{{ font_family }}; font-size:{{ title_font_size }}px; color:{{ colors.title }};">Video</div>
+    <div style="position:relative; width:{{ video_width }}px; height:{{ video_height }}px;">
+      <video id="scrubber-video" muted playsinline loop preload="auto" style="display:block; width:100%; height:100%; background:#000;"></video>
+      <canvas id="scrubber-canvas" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
+    </div>
+  </div>
+  <div style="flex:none;">{{ html_front | safe }}</div>
+  <div style="flex:none;">{{ html_est | safe }}</div>
 </div>
 <div style="display:flex; align-items:center; gap:12px; margin-top:14px; font-family:{{ font_family }};">
   <button id="scrubber-play-btn" style="background:{{ colors.accent_bg }}; border:1px solid {{ colors.accent_border }}; color:{{ colors.accent_text }}; border-radius:6px; padding:6px 14px; font-size:13px; cursor:pointer;">&#9654; Play</button>
@@ -11,68 +17,106 @@
 </div>
 <script>
 (function() {
-  var divIds = ["chart-scrubber-video", "chart-scrubber-front", "chart-scrubber-est"];
+  var plotIds = ["chart-scrubber-front", "chart-scrubber-est"];
   var timestamps = {{ timestamps_json | safe }};
+  var landmarks = {{ landmarks_json | safe }};
+  var segments = {{ segments_json | safe }};
+  var seekOffset = {{ seek_offset }};
+  var video = document.getElementById("scrubber-video");
+  var canvas = document.getElementById("scrubber-canvas");
   var slider = document.getElementById("scrubber-slider");
   var timeLabel = document.getElementById("scrubber-time-label");
   var playBtn = document.getElementById("scrubber-play-btn");
   var pauseBtn = document.getElementById("scrubber-pause-btn");
-  var current = 0;
-  var timer = null;
-  // The video panel's Plotly.animate() (image decode + redraw) is expensive enough that
-  // firing one per showFrame() without waiting backs up a queue during fast Play, which
-  // then keeps draining after Pause and blocks the slider. Fix: track in-flight state and
-  // only keep the latest requested frame, dropping any others in between.
-  var videoBusy = false;
-  var pendingVideoFrame = null;
+  var current = -1;
 
-  function animateVideo(i) {
-    var gd = document.getElementById(divIds[0]);
-    if (!gd || !window.Plotly) return;
-    if (videoBusy) {
-      pendingVideoFrame = i;
-      return;
-    }
-    videoBusy = true;
-    Plotly.animate(gd, [String(i)], {frame: {duration: 0, redraw: true}, transition: {duration: 0}, mode: "immediate"}).then(function() {
-      videoBusy = false;
-      if (pendingVideoFrame !== null) {
-        var next = pendingVideoFrame;
-        pendingVideoFrame = null;
-        animateVideo(next);
+  // A Blob URL rather than a data: URI, so every browser (Safari included) can seek in it.
+  var bytes = Uint8Array.from(atob("{{ video_b64 }}"), function(c) { return c.charCodeAt(0); });
+  video.src = URL.createObjectURL(new Blob([bytes], {type: "{{ video_mime }}"}));
+
+  var dpr = window.devicePixelRatio || 1;
+  var w = {{ video_width }}, h = {{ video_height }};
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  var ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  // Same look as visualization.draw_skeleton: colored bones, joints yellow when confident, orange otherwise.
+  function drawSkeleton(i) {
+    var lms = landmarks[i];
+    ctx.clearRect(0, 0, w, h);
+    ctx.lineWidth = 2;
+    segments.forEach(function(s) {
+      var a = lms[s[0]], b = lms[s[1]];
+      if (a[2] > 0.4 && b[2] > 0.4) {
+        ctx.strokeStyle = s[2];
+        ctx.beginPath();
+        ctx.moveTo(a[0] * w, a[1] * h);
+        ctx.lineTo(b[0] * w, b[1] * h);
+        ctx.stroke();
+      }
+    });
+    lms.forEach(function(lm) {
+      if (lm[2] > 0.4) {
+        ctx.fillStyle = lm[2] > 0.7 ? "rgb(255,255,0)" : "rgb(255,165,0)";
+        ctx.beginPath();
+        ctx.arc(lm[0] * w, lm[1] * h, 3, 0, 2 * Math.PI);
+        ctx.fill();
       }
     });
   }
 
-  function showFrame(i) {
-    current = i;
-    var name = String(i);
-    animateVideo(i);
-    for (var j = 1; j < divIds.length; j++) {
-      var gd = document.getElementById(divIds[j]);
-      if (gd && window.Plotly) {
-        Plotly.animate(gd, [name], {frame: {duration: 0, redraw: true}, transition: {duration: 0}, mode: "immediate"});
-      }
+  // Last frame whose timestamp is <= t (frames without a detected pose are absent).
+  function frameAt(t) {
+    var lo = 0, hi = timestamps.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi + 1) >> 1;
+      if (timestamps[mid] <= t + 1e-6) { lo = mid; } else { hi = mid - 1; }
     }
+    return lo;
+  }
+
+  function showFrame(i) {
+    if (i === current) return;
+    current = i;
+    drawSkeleton(i);
+    plotIds.forEach(function(id) {
+      var gd = document.getElementById(id);
+      if (gd && window.Plotly) {
+        Plotly.animate(gd, [String(i)], {frame: {duration: 0, redraw: true}, transition: {duration: 0}, mode: "immediate"});
+      }
+    });
     slider.value = i;
     timeLabel.textContent = "t = " + timestamps[i].toFixed(2) + "s";
   }
 
-  slider.addEventListener("input", function() { showFrame(parseInt(slider.value, 10)); });
+  // While playing, the video's own clock decides the frame; the panels follow it.
+  function followVideo() {
+    showFrame(frameAt(video.currentTime));
+    if (video.paused) return;
+    if (video.requestVideoFrameCallback) { video.requestVideoFrameCallback(followVideo); }
+    else { requestAnimationFrame(followVideo); }
+  }
 
-  playBtn.addEventListener("click", function() {
+  slider.addEventListener("input", function() {
+    var i = parseInt(slider.value, 10);
+    video.pause();
+    video.currentTime = timestamps[i] + seekOffset;
+    showFrame(i);
+  });
+
+  video.addEventListener("play", function() {
     playBtn.style.display = "none";
     pauseBtn.style.display = "";
-    timer = setInterval(function() {
-      var next = current + 1;
-      if (next >= timestamps.length) { next = 0; }
-      showFrame(next);
-    }, 90);
+    followVideo();
   });
-  pauseBtn.addEventListener("click", function() {
+  video.addEventListener("pause", function() {
     playBtn.style.display = "";
     pauseBtn.style.display = "none";
-    clearInterval(timer);
   });
+  playBtn.addEventListener("click", function() { video.play(); });
+  pauseBtn.addEventListener("click", function() { video.pause(); });
+
+  showFrame(0);
 })();
 </script>

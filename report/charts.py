@@ -1,8 +1,8 @@
 import base64
 import json
+import mimetypes
 from pathlib import Path
 
-import cv2
 import numpy as np
 import plotly.graph_objects as go
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -16,7 +16,7 @@ from swing.metrics import Metrics
 from swing.phases import PhaseMap
 from swing.rotation import RotationRow
 from swing.state import SwingState
-from visualization.visualization import _SEGMENTS, draw_skeleton
+from visualization.visualization import _SEGMENTS
 
 _TEMPLATE_ENV = Environment(
     loader=FileSystemLoader(Path(__file__).parent.parent / "templates"),
@@ -38,6 +38,11 @@ _FONT = dict(
     size=13, color=_COLORS["text"],
 )
 _TITLE_FONT = dict(family=_FONT["family"], size=16, color=_COLORS["title"])
+
+# Usable width of the report's scrubber section (templates/report.html caps the page at
+# 1600px, minus page and section padding); the scrubber's three panels must fit in it.
+_SCRUBBER_ROW_WIDTH = 1440
+_SCRUBBER_GAP = 16
 
 def _title(text: str) -> dict:
     """Shorthand for the title=dict(text=..., font=_TITLE_FONT) pattern every chart repeats."""
@@ -111,15 +116,6 @@ def _skeleton_traces_2d(landmarks: list[Landmark], x_attr: str, flip_x: bool = F
     )
     return [*bone_traces, joints_trace]
 
-def _thumbnail_data_uri(fp: FramePose, target_width: int = 320, quality: int = 65) -> str:
-    """Skeleton-overlaid, downsized JPEG frame as a base64 data URI -- used to animate a
-    'video' panel via Plotly's own frame/slider mechanism instead of a <video> element."""
-    h, w = fp.frame.shape[:2]
-    scale = target_width / w
-    img = cv2.resize(fp.frame, (target_width, round(h * scale)))
-    draw_skeleton(img, fp.landmarks)
-    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
-    return "data:image/jpeg;base64," + base64.b64encode(buf).decode("ascii")
 
 def rotation_comparison_figure(rows: list[RotationRow]) -> go.Figure:
     """Acos-trick vs. z-derived rotation at each phase, hip and shoulder side by side."""
@@ -280,20 +276,26 @@ def _global_axis_ranges(frames: list[FramePose], margin_frac: float = 0.15) -> d
         zaxis=dict(range=axis_range(zs), autorange=False),
     )
 
-def video_scrubber_html(frames: list[FramePose], angle: str, config: dict) -> str:
-    """Synced three-panel scrubber, returned as ready-to-embed HTML (not a single
-    go.Figure): the skeleton-overlaid video frame, a flat view of the skeleton matching
-    the video's own camera angle (x/y), and a flat view estimating the *other* camera
-    angle (z/y).
+def _skeleton_overlay_data(frames: list[FramePose]) -> tuple[list, list]:
+    """Per-frame [x, y, visibility] landmarks plus [a, b, rgb] segments, for the video
+    panel's canvas overlay to draw the same skeleton as visualization.draw_skeleton."""
+    landmarks = [[[round(lm.x, 4), round(lm.y, 4), round(lm.visibility, 2)] for lm in fp.landmarks] for fp in frames]
+    segments = [[a, b, f"rgb({c[2]},{c[1]},{c[0]})"] for (a, b), c in _SEGMENTS.items()]
+    return landmarks, segments
 
-    These are three separate Plotly figures/divs, not subplots of one figure: go.Image
-    traces require redraw=True to update, but redrawing an image trace alongside other
-    "xy"-type subplots in the same figure visibly blanks it before each new frame paints.
-    Separate Plotly instances avoid this since each gets its own independent redraw call.
+def video_scrubber_html(frames: list[FramePose], angle: str, config: dict, video_path: str) -> str:
+    """Synced three-panel scrubber, returned as ready-to-embed HTML: the source video with
+    a skeleton canvas overlay, a flat view of the skeleton matching the video's own camera
+    angle (x/y), and a flat view estimating the *other* camera angle (z/y).
 
-    Since three figures means three built-in sliders would be redundant, one shared plain
-    HTML range input + play/pause button drives all three via Plotly.animate calls in the
-    appended <script> (see templates/scrubber_controls.html).
+    The video panel is a native <video> element playing the original file (embedded as
+    base64), not per-frame images: the browser decodes it at full quality, and the file
+    stays a fraction of the size of storing every frame as a JPEG. The skeleton is drawn
+    on a <canvas> on top of it from the landmark JSON.
+
+    One shared range input + play/pause button drives everything (see
+    templates/scrubber_controls.html): the video's own playback clock picks the current
+    frame, and the two skeleton panels follow via Plotly.animate.
 
     DTL and face-on are roughly perpendicular camera angles, so one camera's estimated
     depth (z) is approximately the other camera's own lateral (x) axis -- e.g. for a DTL
@@ -308,25 +310,21 @@ def video_scrubber_html(frames: list[FramePose], angle: str, config: dict) -> st
 
     video_h, video_w = frames[0].frame.shape[:2]
     video_aspect = video_w / video_h
-    panel_height = 480
-    video_panel_width = round(panel_height * video_aspect)
-    # +60 for the skeleton panels' y-axis title/ticks, which the video panel hides.
+    # Shrink the panels when needed so video + two skeleton panels (each +60px for the
+    # y-axis title/ticks) + two gaps fit one row of _SCRUBBER_ROW_WIDTH.
+    # The video sits under a 40px title with a 10px bottom margin, matching the skeleton
+    # panels' title band.
+    fixed_width = 2 * 60 + 2 * _SCRUBBER_GAP
+    panel_height = min(480, round((_SCRUBBER_ROW_WIDTH - fixed_width) / (3 * video_aspect)) + 50)
+    video_display_height = panel_height - 50
+    video_panel_width = round(video_display_height * video_aspect)
     skeleton_panel_width = video_panel_width + 60
 
     primary_title, secondary_title = _scrubber_panel_titles(angle)
     ranges = _global_axis_ranges(frames)
-
-    fig_video = go.Figure(go.Image(source=_thumbnail_data_uri(frames[0])))
-    fig_video.frames = [
-        go.Frame(name=str(i), data=[go.Image(source=_thumbnail_data_uri(frames[i]))], traces=[0])
-        for i in range(n)
-    ]
-    fig_video.update_xaxes(visible=False)
-    fig_video.update_yaxes(visible=False, scaleanchor="x")
-    fig_video.update_layout(
-        title=_title("Video"), font=_FONT,
-        width=video_panel_width, height=panel_height, margin=dict(t=40, b=10, l=10, r=10),
-    )
+    landmarks, segments = _skeleton_overlay_data(frames)
+    # Seek to the middle of a frame, not its start, so the browser can't land on the previous one.
+    seek_offset = float(np.median(np.diff(ts))) / 2 if n > 1 else 0.0
 
     def skeleton_figure(x_attr: str, title: str, x_range: list, y_range: list, flip_x: bool = False) -> go.Figure:
         fig = go.Figure(_skeleton_traces_2d(frames[0].landmarks, x_attr, flip_x))
@@ -351,15 +349,19 @@ def video_scrubber_html(frames: list[FramePose], angle: str, config: dict) -> st
     fig_front = skeleton_figure("x", primary_title, ranges["xaxis"]["range"], ranges["yaxis"]["range"])
     fig_est = skeleton_figure("z", secondary_title, ranges["zaxis"]["range"], ranges["yaxis"]["range"], flip_x=(angle == "face_on"))
 
-    html_video = fig_video.to_html(full_html=False, include_plotlyjs=True, config=config, div_id="chart-scrubber-video", auto_play=False)
-    html_front = fig_front.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="chart-scrubber-front", auto_play=False)
+    html_front = fig_front.to_html(full_html=False, include_plotlyjs=True, config=config, div_id="chart-scrubber-front", auto_play=False)
     html_est = fig_est.to_html(full_html=False, include_plotlyjs=False, config=config, div_id="chart-scrubber-est", auto_play=False)
 
     template = _TEMPLATE_ENV.get_template("scrubber_controls.html")
     return template.render(
-        html_video=html_video, html_front=html_front, html_est=html_est,
+        html_front=html_front, html_est=html_est,
+        video_b64=base64.b64encode(Path(video_path).read_bytes()).decode("ascii"),
+        video_mime=mimetypes.guess_type(video_path)[0] or "video/mp4",
+        video_width=video_panel_width, video_height=video_display_height, gap=_SCRUBBER_GAP,
+        landmarks_json=json.dumps(landmarks, separators=(",", ":")),
+        segments_json=json.dumps(segments), seek_offset=seek_offset,
         max_frame=n - 1, timestamps_json=json.dumps([round(t, 3) for t in ts]),
-        font_family=_FONT["family"], colors=_COLORS,
+        font_family=_FONT["family"], colors=_COLORS, title_font_size=_TITLE_FONT["size"],
     )
 
 def issues_grid_figure(phases: PhaseMap, metrics: list[Metrics], club: str, swing_type: str, angle: str) -> go.Figure:
