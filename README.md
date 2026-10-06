@@ -129,3 +129,7 @@ ffmpeg -i downloaded.mp4 -filter:v "crop=iw*0.4:ih:iw*0.6:0" -c:a copy right.mp4
 
 - [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
 - Sample footage: [Rory McIlroy's Powerful Driver Swing](https://www.youtube.com/watch?v=P3YksJdejog) by TaylorMade Golf
+
+## License
+
+[MIT](LICENSE)

@@ -98,7 +98,7 @@ def main() -> None:
     report.add_argument("--club", default="iron", choices=CLUBS)
     report.add_argument("--output", default="report.html", help="Output path for the HTML report")
 
-    charts = subparsers.add_parser("charts", help="Run the full pipeline and export the blog post's charts as Plotly JSON")
+    charts = subparsers.add_parser("charts", help="Run the full pipeline and export charts as Plotly JSON")
     add_angle_aware_video_source(charts)
     charts.add_argument("--output", required=True, help="Output directory for the chart JSON files")
 

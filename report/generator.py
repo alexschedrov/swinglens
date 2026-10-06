@@ -85,7 +85,7 @@ def export_charts(
     angle: str,
     out_dir: str,
 ) -> list[Path]:
-    """Write the blog post's charts as Plotly JSON files, one per chart, for a page to
+    """Write the charts as Plotly JSON files, one per chart, for a page to
     render client-side with Plotly.newPlot. Titles are dropped and the background made
     transparent: the embedding page supplies its own captions and theme."""
     figures = {
