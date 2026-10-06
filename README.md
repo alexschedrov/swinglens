@@ -2,7 +2,7 @@
 
 Extracts a per-frame physical state trajectory from a single-camera golf swing video using MediaPipe pose estimation.
 
-[![Face-on pose scrubber](assets/face_on_thumbnail.jpg)](assets/face_on_scrubber.mp4)
+![Face-on pose scrubber](assets/face_on_thumbnail.jpg)
 
 ## Features
 
