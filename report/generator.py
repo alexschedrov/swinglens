@@ -76,3 +76,30 @@ def generate_report(
         charts=charts,
     )
     out_path.write_text(html)
+
+def export_charts(
+    frames: list[FramePose],
+    phases: PhaseMap,
+    metrics: list[Metrics],
+    states: list[SwingState],
+    angle: str,
+    out_dir: str,
+) -> list[Path]:
+    """Write the blog post's charts as Plotly JSON files, one per chart, for a page to
+    render client-side with Plotly.newPlot. Titles are dropped and the background made
+    transparent: the embedding page supplies its own captions and theme."""
+    figures = {
+        "rotation": rotation_comparison_figure(rotation_comparison_rows(frames, phases, metrics)),
+        "birdseye": birdseye_rotation_figure(frames, phases, angle),
+        "state_timeseries": state_timeseries_figure(states, phases),
+        "state_trajectories": state_trajectories_figure(states, angle),
+    }
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for name, fig in figures.items():
+        fig.update_layout(title=None, paper_bgcolor="rgba(0,0,0,0)", margin_t=40)
+        path = out / f"{name}.json"
+        fig.write_json(path)
+        paths.append(path)
+    return paths

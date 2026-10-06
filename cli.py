@@ -6,7 +6,7 @@ from config import CLUBS
 from pose.detector import FramePose, detect
 from pose.smoother import smooth
 from report.export import export_states
-from report.generator import generate_report
+from report.generator import export_charts, generate_report
 from swing.metrics import compute_all as compute_metrics
 from swing.phases import PhaseMap, detect_phases
 from swing.state import compute_all as compute_states
@@ -57,6 +57,13 @@ def run_report(video: str, swing_type: str, club: str, angle: str, output: str) 
     generate_report(frames, phases, metrics, states, issues, video, club, swing_type, angle, output)
     print(f"saved report -> {output}")
 
+def run_charts(video: str, swing_type: str, angle: str, output: str) -> None:
+    frames, phases = _run_pipeline(video, swing_type)
+    metrics = compute_metrics(frames)
+    states = compute_states(frames, metrics, phases)
+    for path in export_charts(frames, phases, metrics, states, angle, output):
+        print(f"saved chart -> {path}")
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Golf swing posture tracker")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -91,6 +98,10 @@ def main() -> None:
     report.add_argument("--club", default="iron", choices=CLUBS)
     report.add_argument("--output", default="report.html", help="Output path for the HTML report")
 
+    charts = subparsers.add_parser("charts", help="Run the full pipeline and export the blog post's charts as Plotly JSON")
+    add_angle_aware_video_source(charts)
+    charts.add_argument("--output", required=True, help="Output directory for the chart JSON files")
+
     args = parser.parse_args()
 
     if args.command == "annotate":
@@ -102,6 +113,9 @@ def main() -> None:
     elif args.command == "report":
         video, angle = resolve_angle_aware_video(args)
         run_report(video, args.swing_type, args.club, angle, args.output)
+    elif args.command == "charts":
+        video, angle = resolve_angle_aware_video(args)
+        run_charts(video, args.swing_type, angle, args.output)
 
 
 if __name__ == "__main__":

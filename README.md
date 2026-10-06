@@ -23,6 +23,13 @@ uv run python cli.py report --dtl samples/source/dtl.mp4 --club iron --output sa
 ```
 Same video-source rule as `export` (`--video`/`--dtl`/`--face-on`, mutually exclusive). `--output` defaults to `report.html`.
 
+### charts
+Exports the blog post's charts (rotation check, bird's-eye view, state time series, state trajectories) as Plotly JSON files, one per chart, for rendering on a web page with `Plotly.newPlot`. Titles are dropped and backgrounds are transparent so the page supplies its own captions and theme.
+```
+uv run python cli.py charts --face-on samples/source/rory/rory_face_on_driver.mp4 --output samples/annotated/rory/charts
+```
+Same video-source rule as `export`.
+
 ### video downloads
 ```bash
 yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 -o "downloaded.%(ext)s" "https://www.youtube.com/watch?v=P3YksJdejog"
