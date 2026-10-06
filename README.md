@@ -1,51 +1,131 @@
-## Commands
+# SwingLens
 
-All commands run via `uv run python cli.py <command> [flags]`. `--video` and `--swing-type` (`full`/`partial`/`pitch`/`chip`, default `full`) are shared by every command.
+Extracts a per-frame physical state trajectory from a single-camera golf swing video using MediaPipe pose estimation.
 
-### annotate
-Skeleton-overlay video with a phase label burned into every frame.
-```
-uv run python cli.py annotate --video samples/source/face_on.mp4 --output samples/annotated/face_on_annotated.mp4
-```
-`--output` defaults to `<video>_annotated.<ext>` next to the input if omitted.
+[![Face-on pose scrubber](assets/face_on_thumbnail.jpg)](assets/face_on_scrubber.mp4)
 
-### export
-Runs the full pipeline (pose detection → smoothing → phase detection → metrics → analysis) and exports the per-frame `SwingState` trajectory to JSON or CSV, chosen by `--output`'s extension. Detected issues (measured values outside `IDEAL_RANGES` for the given club/swing-type/angle) are printed to the console.
-```
-uv run python cli.py export --video samples/source/dtl.mp4 --club iron --output samples/annotated/state_trajectory.json
-```
-Takes exactly one video source — `--video`, `--dtl`, or `--face-on` — the latter two also set the camera angle used by the analyzer. With `--video` alone, the angle is `unknown` and the analyzer evaluates every metric (both DTL- and face-on-only), which can produce spurious issues for metrics that aren't geometrically valid from the actual camera angle — prefer `--dtl`/`--face-on` when you know it.
+## Features
 
-### report
-Runs the full pipeline once and generates a single self-contained, interactive HTML report (Plotly charts, no separate files): a synced video/skeleton scrubber, phase table, issues table + issues grid, the rotation self-consistency chart, bird's-eye view, the metrics chart, and the state charts.
-```
-uv run python cli.py report --dtl samples/source/dtl.mp4 --club iron --output samples/annotated/report/report.html
-```
-Same video-source rule as `export` (`--video`/`--dtl`/`--face-on`, mutually exclusive). `--output` defaults to `report.html`.
+- Pose detection (33 MediaPipe landmarks) with Savitzky-Golay smoothing
+- Swing phase detection from setup to finish
+- Hip and shoulder rotation from two independent estimators (projected span and MediaPipe depth)
+- `SwingState` trajectory export to JSON or CSV
+- Interactive HTML report with synced video and skeleton scrubber
+- Swing issue detection per club, swing type and camera angle
 
-### charts
-Exports the blog post's charts (rotation check, bird's-eye view, state time series, state trajectories) as Plotly JSON files, one per chart, for rendering on a web page with `Plotly.newPlot`. Titles are dropped and backgrounds are transparent so the page supplies its own captions and theme.
-```
-uv run python cli.py charts --face-on samples/source/rory/rory_face_on_driver.mp4 --output samples/annotated/rory/charts
-```
-Same video-source rule as `export`.
+## Requirements
 
-### video downloads
+- Python 3.14
+- [uv](https://docs.astral.sh/uv/)
+
+The MediaPipe pose model downloads to `models/` on first run.
+
+## Installation
+
 ```bash
-yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 -o "downloaded.%(ext)s" "https://www.youtube.com/watch?v=P3YksJdejog"
-```
-To grab only part of the video, add `--download-sections` (accepts `HH:MM:SS` or raw seconds) plus `--force-keyframes-at-cuts` so the cut lands exactly on those timestamps instead of the nearest keyframe:
-```bash
-yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 --download-sections "*00:01:30-00:02:00" --force-keyframes-at-cuts -o "downloaded.%(ext)s" "https://www.youtube.com/watch?v=P3YksJdejog"
+git clone git@github.com:alexschedrov/swinglens.git
+cd swinglens
+uv sync
 ```
 
-### video crop
-Split a side-by-side split-screen video into its two camera angles (adjust the fractions if the seam isn't 50/50 — extract one frame first to check):
+## Usage
+
 ```bash
+uv run python cli.py <command> [options]
+```
+
+| Command | Output |
+|---|---|
+| `annotate` | Skeleton-overlay video with phase labels |
+| `export` | `SwingState` trajectory (`.json` or `.csv`) |
+| `report` | Self-contained interactive HTML report |
+| `charts` | Plotly JSON file per chart |
+
+| Option | Values |
+|---|---|
+| `--face-on`, `--dtl`, `--video` | Input video. `--video` leaves the camera angle unknown |
+| `--club` | `driver`, `wood`, `hybrid`, `iron` (default), `short_iron`, `wedge` |
+| `--swing-type` | `full` (default), `partial`, `pitch`, `chip` |
+| `--output` | Output path (directory for `charts`) |
+
+`annotate` takes `--video` only.
+
+### Examples
+
+```bash
+uv run python cli.py report --face-on swing.mp4 --club driver --output report.html
+uv run python cli.py export --dtl swing.mp4 --output state_trajectory.json
+uv run python cli.py annotate --video swing.mp4 --output annotated.mp4
+uv run python cli.py charts --face-on swing.mp4 --output charts/
+```
+
+## Output
+
+Each frame produces one `SwingState`:
+
+| Field | Description |
+|---|---|
+| `frame_idx`, `timestamp` | Frame index and time in seconds |
+| `phase` | Swing phase label |
+| `pelvis_rotation`, `torso_rotation` | Degrees from address |
+| `lead_arm_angle` | Degrees at the lead elbow |
+| `wrist_position`, `head_position` | Normalized x, y, z |
+| `com_proxy` | Weighted blend of hips, shoulders and head |
+| `angular_velocities` | Pelvis, torso and lead arm, degrees per second |
+
+## Sample results
+
+Face-on driver swing ([source](https://www.youtube.com/watch?v=P3YksJdejog)).
+
+**Rotation per phase, both estimators**
+
+![Rotation per phase](assets/chart_rotation.png)
+
+**Hip and shoulder lines, top-down view**
+
+![Top-down view](assets/chart_birdseye.png)
+
+**Lead wrist and COM proxy paths**
+
+![Wrist and COM paths](assets/chart_state_trajectories.png)
+
+## Project structure
+
+```
+cli.py           CLI entry point
+config.py        Ideal ranges and settings
+pose/            Landmark detection and smoothing
+swing/           Phases, metrics, rotation, SwingState
+analysis/        Issue detection
+report/          Export, HTML report, charts
+visualization/   Annotated video
+templates/       HTML report templates
+```
+
+## Limitations
+
+- Rotation estimates are not validated against motion capture.
+- The span estimator works only with face-on video and saturates at 90°.
+- Movement toward or away from the camera and shoulder tilt inflate span-based rotation.
+- MediaPipe depth (`z`) is a model estimate, not a measurement.
+- `com_proxy` is not a true center of mass.
+
+## Utilities
+
+Download a clip section and split a side-by-side video into two angles:
+
+```bash
+brew install yt-dlp ffmpeg
+
+yt-dlp -f "bv*[height<=720]+ba/b[height<=720]" --merge-output-format mp4 \
+  --download-sections "*00:01:30-00:02:00" --force-keyframes-at-cuts \
+  -o "downloaded.%(ext)s" "<youtube-url>"
+
 ffmpeg -i downloaded.mp4 -filter:v "crop=iw*0.6:ih:0:0" -c:a copy left.mp4
 ffmpeg -i downloaded.mp4 -filter:v "crop=iw*0.4:ih:iw*0.6:0" -c:a copy right.mp4
 ```
-To trim a time range while cropping, add `-ss START -t DURATION` before `-i` (fast seek to the nearest keyframe, then decode):
-```bash
-ffmpeg -ss 00:01:30 -i downloaded.mp4 -t 30 -filter:v "crop=iw*0.6:ih:0:0" -c:a copy left.mp4
-```
+
+## Sources
+
+- [MediaPipe Pose Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker)
+- Sample footage: [Rory McIlroy's Powerful Driver Swing](https://www.youtube.com/watch?v=P3YksJdejog) by TaylorMade Golf
